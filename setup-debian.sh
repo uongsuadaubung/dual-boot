@@ -469,6 +469,194 @@ else
 fi
 
 # ============================================================
+# STEP 11: Configure SUDO lock on Host
+# ============================================================
+section "STEP 11: Configure SUDO lock on Host"
+
+if ask_choice "Do you want to enable the 'sudo-lock' block on this Host?"; then
+  info "Setting up wrappers and manager CLI to block 'sudo'..."
+  
+  # 11.1 Create centralized sudo-lock manager
+  cat > /usr/local/bin/sudo-lock << 'EOF'
+#!/bin/bash
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+STATE_FILE="/var/lib/sudo-lock-state"
+SERVICE_FILE="/etc/systemd/system/sudo-lock-on-boot.service"
+
+is_locked() {
+    [ -f "$STATE_FILE" ]
+}
+
+check_root() {
+    if [ "$EUID" -ne 0 ]; then
+        echo -e "${RED}Error: Please run with sudo.${NC}" >&2
+        exit 1
+    fi
+}
+
+show_help() {
+    echo -e "${CYAN}=== SUDO-LOCK Management CLI ===${NC}"
+    echo -e "Utility to lock/unlock SUDO usage and manage its boot service.\n"
+    echo -e "Usage:"
+    echo -e "  sudo-lock <command>\n"
+    echo -e "Commands:"
+    echo -e "  ${GREEN}lock, --lock${NC}        Lock SUDO usage (block 'sudo')"
+    echo -e "  ${GREEN}unlock, --unlock${NC}    Unlock SUDO usage temporarily"
+    echo -e "  ${GREEN}status, --status${NC}    Show current SUDO status and boot service status"
+    echo -e "  ${GREEN}enable-boot${NC}         Enable auto-lock on system boot"
+    echo -e "  ${GREEN}disable-boot${NC}        Disable auto-lock on system boot"
+    echo -e "  ${GREEN}install-service${NC}     Install systemd service to auto-lock SUDO on boot"
+    echo -e "  ${GREEN}remove-service${NC}      Remove systemd service from the system"
+    echo -e "  ${GREEN}uninstall${NC}           Completely uninstall sudo-lock and restore normal SUDO"
+    echo -e "  ${GREEN}help, -h, --help${NC}    Show this help message\n"
+    echo -e "Examples:"
+    echo -e "  sudo sudo-lock lock"
+    echo -e "  sudo sudo-lock disable-boot"
+    echo -e "  sudo-lock status"
+}
+
+case "$1" in
+    --lock|lock)
+        check_root
+        touch "$STATE_FILE"
+        echo -e "${RED}🔒 SUDO usage has been LOCKED on this Host.${NC}"
+        ;;
+    --unlock|unlock)
+        check_root
+        rm -f "$STATE_FILE"
+        echo -e "${GREEN}🔓 SUDO usage has been UNLOCKED on this Host.${NC}"
+        ;;
+    --status|status)
+        if is_locked; then
+            echo -e "SUDO status: ${RED}LOCKED${NC}"
+        else
+            echo -e "SUDO status: ${GREEN}UNLOCKED${NC}"
+        fi
+        
+        # Check service installation and status
+        if [ -f "$SERVICE_FILE" ]; then
+            if systemctl is-enabled sudo-lock-on-boot.service &>/dev/null; then
+                echo -e "Auto-lock on boot: ${GREEN}ENABLED${NC}"
+            else
+                echo -e "Auto-lock on boot: ${YELLOW}DISABLED${NC}"
+            fi
+        else
+            echo -e "Auto-lock on boot: ${RED}NOT INSTALLED${NC}"
+        fi
+        ;;
+    enable-boot)
+        check_root
+        if [ ! -f "$SERVICE_FILE" ]; then
+            echo -e "${YELLOW}Warning: Service is not installed. Installing it first...${NC}"
+            $0 install-service
+        fi
+        systemctl enable sudo-lock-on-boot.service
+        echo -e "${GREEN}🔄 Auto-lock on boot has been ENABLED.${NC}"
+        ;;
+    disable-boot)
+        check_root
+        if systemctl is-enabled sudo-lock-on-boot.service &>/dev/null; then
+            systemctl disable sudo-lock-on-boot.service
+            echo -e "${YELLOW}🔄 Auto-lock on boot has been DISABLED.${NC}"
+        else
+            echo -e "Auto-lock on boot is already disabled."
+        fi
+        ;;
+    install-service)
+        check_root
+        echo -e "Installing systemd service to auto-lock SUDO on boot..."
+        cat > "$SERVICE_FILE" << 'EOF_SERVICE'
+[Unit]
+Description=Lock SUDO on boot
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/sudo-lock lock
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF_SERVICE
+        systemctl daemon-reload
+        echo -e "${GREEN}✅ Service installed successfully at $SERVICE_FILE.${NC}"
+        ;;
+    remove-service)
+        check_root
+        echo -e "Removing systemd service..."
+        systemctl disable --now sudo-lock-on-boot.service 2>/dev/null || true
+        rm -f "$SERVICE_FILE"
+        systemctl daemon-reload
+        echo -e "${GREEN}✅ Service removed successfully.${NC}"
+        ;;
+    uninstall)
+        check_root
+        echo -e "${YELLOW}Uninstalling SUDO-LOCK and restoring default SUDO command...${NC}"
+        $0 remove-service
+        rm -f "$STATE_FILE"
+        rm -f /usr/local/bin/sudo
+        echo -e "${GREEN}✅ Default 'sudo' command has been restored.${NC}"
+        echo -e "${GREEN}✅ SUDO-LOCK has been completely uninstalled.${NC}"
+        rm -f "$0"
+        ;;
+    help|-h|--help)
+        show_help
+        ;;
+    *)
+        show_help
+        exit 1
+        ;;
+esac
+EOF
+
+  # 11.2 Create wrapper for sudo
+  cat > /usr/local/bin/sudo << 'EOF'
+#!/bin/bash
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+STATE_FILE="/var/lib/sudo-lock-state"
+
+# Check if the FIRST argument is exactly 'sudo-lock'
+is_lock_manager=false
+if [ "$1" = "sudo-lock" ]; then
+    is_lock_manager=true
+fi
+
+if [ -f "$STATE_FILE" ] && [ "$is_lock_manager" = false ]; then
+    echo -e "${RED}🚨 [SYSTEM BLOCK] 'sudo' is locked on this Host.${NC}"
+    echo -e "${YELLOW}Please use Flatpak, Distrobox or normal user commands!${NC}"
+    echo -e "${CYAN}Tip: To temporarily bypass this block, run: sudo sudo-lock unlock${NC}"
+    echo -e "To lock again afterward, run: sudo sudo-lock lock."
+    exit 1
+fi
+
+exec /usr/bin/sudo "$@"
+EOF
+
+  # 11.3 Grant execution permissions
+  chmod +x /usr/local/bin/sudo-lock /usr/local/bin/sudo
+
+  # 11.4 Setup and enable auto-lock service using the CLI itself
+  info "Installing and enabling auto-lock on boot service..."
+  /usr/local/bin/sudo-lock install-service
+  /usr/local/bin/sudo-lock enable-boot
+
+  # 11.5 Lock by default
+  /usr/local/bin/sudo-lock lock
+
+  info "Setup successful! From now on, 'sudo' commands are blocked on the Host."
+else
+  info "Skipped configuring SUDO block."
+fi
+
+# ============================================================
 # COMPLETED
 # ============================================================
 section "COMPLETED"
@@ -479,6 +667,11 @@ echo "To temporarily unlock APT, run: sudo apt-lock unlock"
 echo "To lock APT again, run: sudo apt-lock lock"
 echo "To restore normal APT installation commands and uninstall cleanly, simply run:"
 echo "  sudo apt-lock uninstall"
+echo ""
+echo "To temporarily unlock SUDO, run: sudo sudo-lock unlock"
+echo "To lock SUDO again, run: sudo sudo-lock lock"
+echo "To restore normal SUDO command and uninstall cleanly, simply run:"
+echo "  sudo sudo-lock uninstall"
 echo ""
 
 if ask_choice "Reboot now?"; then
