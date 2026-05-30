@@ -199,20 +199,60 @@ else
 fi
 
 # ============================================================
-# STEP 6: Install ibus-unikey (Vietnamese Keyboard)
+# STEP 6: Install fcitx5-lotus (Vietnamese Keyboard)
 # ============================================================
-section "STEP 6: Install ibus-unikey"
+section "STEP 6: Install fcitx5-lotus"
 
-if ask_choice "Do you want to install ibus-unikey?"; then
-  info "Installing ibus and ibus-unikey..."
-  apt install -y ibus ibus-unikey
+if ask_choice "Do you want to install fcitx5-lotus?"; then
+  info "Purging ibus (if exists) as it conflicts with fcitx5-lotus..."
+  apt-get purge -y ibus || true
+  apt-get autoremove --purge -y || true
+
+  info "Adding fcitx5-lotus repository..."
+  CODENAME=$(grep '^UBUNTU_CODENAME=' /etc/os-release | cut -d'=' -f2)
+  mkdir -p /etc/apt/keyrings
+  curl -fsSL https://fcitx5-lotus.pages.dev/pubkey.gpg | gpg --dearmor -o /etc/apt/keyrings/fcitx5-lotus.gpg
+  echo "deb [signed-by=/etc/apt/keyrings/fcitx5-lotus.gpg] https://fcitx5-lotus.pages.dev/apt/$CODENAME $CODENAME main" | tee /etc/apt/sources.list.d/fcitx5-lotus.list
+
+  info "Updating packages and installing fcitx5-lotus..."
+  apt-get update
+  apt-get install -y fcitx5-lotus
+
+  info "Configuring environment variables for non-root user..."
+  if [ -n "$SUDO_USER" ]; then
+    USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    USER_GROUP=$(id -gn "$SUDO_USER")
+  else
+    USER_HOME="$HOME"
+    USER_GROUP=$(id -gn)
+  fi
+
+  BASH_PROFILE="$USER_HOME/.bash_profile"
+  touch "$BASH_PROFILE"
+  if [ -n "$SUDO_USER" ]; then
+    chown "$SUDO_USER:$USER_GROUP" "$BASH_PROFILE"
+  fi
+
+  if ! grep -q "XMODIFIERS=@im=fcitx" "$BASH_PROFILE" 2>/dev/null; then
+    cat <<EOF >> "$BASH_PROFILE"
+
+# fcitx5-lotus environment variables
+export XMODIFIERS=@im=fcitx
+export QT_IM_MODULE=fcitx
+export QT_IM_MODULES="wayland;fcitx"
+export GLFW_IM_MODULE=ibus
+EOF
+    info "Environment variables added to $BASH_PROFILE."
+  else
+    info "Environment variables already configured in $BASH_PROFILE."
+  fi
 
   info "Done."
 else
   info "Skipped STEP 6."
 fi
-warn "After reboot: run 'im-config' and select IBus as default input method."
-warn "Then run 'ibus-setup', go to Input Method -> Add -> Vietnamese -> Unikey."
+warn "After reboot: run 'im-config' and select Fcitx 5 as default input method."
+warn "Then configure Fcitx 5 to add and customize your Vietnamese layout."
 
 # ============================================================
 # STEP 7: Configure Dual Boot (Time Synchronization with Windows)
@@ -692,7 +732,7 @@ fi
 section "COMPLETED"
 
 echo ""
-echo -e "${GREEN}Successfully removed Snap, cleaned unnecessary packages, and configured Flatpak, zram, tuned, distrobox, and ibus-unikey!${NC}"
+echo -e "${GREEN}Successfully removed Snap, cleaned unnecessary packages, and configured Flatpak, zram, tuned, distrobox, and fcitx5-lotus!${NC}"
 echo "To restore Snap in the future, delete the file: /etc/apt/preferences.d/nosnap.pref"
 echo "To temporarily unlock APT, run: sudo apt-lock unlock"
 echo "To lock APT again, run: sudo apt-lock lock"
