@@ -268,11 +268,24 @@ else
 fi
 
 # ============================================================
-# STEP 8: Remove unnecessary packages (System Cleanup)
+# STEP 8: Enable UFW Firewall
 # ============================================================
-section "STEP 8: Remove unnecessary packages"
+section "STEP 8: Enable UFW Firewall"
 
-if ask_choice "Do you want to run unnecessary packages cleanup (STEP 8)?"; then
+if ask_choice "Do you want to enable UFW Firewall?"; then
+  info "Enabling UFW..."
+  ufw enable
+  info "Done. UFW is enabled and active on system startup."
+else
+  info "Skipped UFW configuration."
+fi
+
+# ============================================================
+# STEP 9: Remove unnecessary packages (System Cleanup)
+# ============================================================
+section "STEP 9: Remove unnecessary packages"
+
+if ask_choice "Do you want to run unnecessary packages cleanup (STEP 9)?"; then
   # 8.1 Accessibility tools
   if ask_choice "Do you want to remove accessibility tools (orca, brltty, speech-dispatcher)?"; then
     info "Removing unnecessary accessibility tools..."
@@ -319,9 +332,9 @@ else
 fi
 
 # ============================================================
-# STEP 9: Configure APT installation block on Host
+# STEP 10: Configure APT installation block on Host
 # ============================================================
-section "STEP 9: Configure APT installation block on Host"
+section "STEP 10: Configure APT installation block on Host"
 
 if ask_choice "Do you want to enable the 'apt/apt-get install' block on this Host?"; then
   info "Setting up wrappers to block 'apt/apt-get install'..."
@@ -539,9 +552,9 @@ else
 fi
 
 # ============================================================
-# STEP 10: Configure SUDO lock on Host
+# STEP 11: Configure SUDO lock on Host
 # ============================================================
-section "STEP 10: Configure SUDO lock on Host"
+section "STEP 11: Configure SUDO lock on Host"
 
 if ask_choice "Do you want to enable the 'sudo-lock' block on this Host?"; then
   info "Setting up wrappers and manager CLI to block 'sudo'..."
@@ -732,7 +745,7 @@ fi
 section "COMPLETED"
 
 echo ""
-echo -e "${GREEN}Successfully removed Snap, cleaned unnecessary packages, and configured Flatpak, zram, tuned, distrobox, and fcitx5-lotus!${NC}"
+echo -e "${GREEN}Successfully removed Snap, cleaned unnecessary packages, and configured Flatpak, zram, tuned, distrobox, fcitx5-lotus, and UFW!${NC}"
 echo "To restore Snap in the future, delete the file: /etc/apt/preferences.d/nosnap.pref"
 echo "To temporarily unlock APT, run: sudo apt-lock unlock"
 echo "To lock APT again, run: sudo apt-lock lock"
